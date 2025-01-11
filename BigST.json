@@ -1,0 +1,33 @@
+{
+  "hid_dim": 32,
+  "num_layers": 3,
+  "tau": 0.25,
+  "random_feature_dim": 64,
+  "node_dim": 32,
+  "time_dim": 32,
+  "use_residual": true,
+  "use_bn": true,
+  "use_spatial": true,
+  "use_long": false,
+  "dropout": 0.3,
+
+  "batch_size": 16,
+  "load_external": true,
+  "normal_external": false,
+  "add_time_in_day": true,
+  "add_day_in_week": true,
+  "input_window": 12,
+  "output_window": 12,
+
+  "clip_grad_norm": true,
+  "max_grad_norm": 5,
+  "learner": "adam",
+  "learning_rate": 0.001,
+  "lr_decay": true,
+  "lr_scheduler": "multisteplr",
+  "steps": [80, 100],
+  "use_early_stop": true,
+  "patience": 30,
+  "weight_decay": 0.0001,
+  "epochs": 100
+}
