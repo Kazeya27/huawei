@@ -1,0 +1,13 @@
+sd_his_2019_agg_0000
+config_name,n_param,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,
+mole_0000,8580768,20.81,34.66,14.37,26.83,46.04,20.06,35.52,62.85,29.30,26.78,46.09,20.39,
+
+gba_his_2019_agg_0000
+config_name,n_param,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,
+
+gla_his_2019_agg_0000
+config_name,n_param,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,
+
+ca_his_2019_agg_0000
+config_name,n_param,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,mae,rmse,mape,
+
