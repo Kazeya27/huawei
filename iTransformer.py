@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from math import sqrt
 
-
 class TriangularCausalMask():
     def __init__(self, B, L, device="cpu"):
         mask_shape = [B, 1, L, L]
@@ -164,32 +163,41 @@ class Model(nn.Module):
     Paper link: https://arxiv.org/abs/2310.06625
     """
 
-    def __init__(self, configs):
+    def __init__(self, config, data_feature):
         super(Model, self).__init__()
-        self.seq_len = configs.seq_len
-        self.pred_len = configs.pred_len
-        self.output_attention = configs.output_attention
-        self.use_norm = configs.use_norm
+        self.seq_len = config.get("seq_len", 12)
+        self.pred_len = config.get("pred_len", 12)
+        self.output_attention = config.get("output_attention", False)
+        self.use_norm = config.get("use_norm", True)
+        self.d_model = config.get("d_model", 512)
+        self.embed = config.get("embed", "timeF")
+        self.freq = config.get("freq", "h")
+        self.dropout = config.get("dropout", 0.1)
         # Embedding
-        self.enc_embedding = DataEmbedding_inverted(configs.seq_len, configs.d_model, configs.embed, configs.freq,
-                                                    configs.dropout)
-        self.class_strategy = configs.class_strategy
+        self.enc_embedding = DataEmbedding_inverted(self.seq_len, self.d_model, self.embed, self.freq,
+                                                    self.dropout)
+        self.class_strategy = config.get("class_strategy", "projection")
+        self.factor = config.get("factor", 1)
+        self.n_heads = config.get("n_heads", 8)
+        self.e_layers = config.get("e_layers", 3)
+        self.d_ff = config.get("d_ff", 512)
+        self.activation = config.get("activation", "gelu")
         # Encoder-only architecture
         self.encoder = Encoder(
             [
                 EncoderLayer(
                     AttentionLayer(
-                        FullAttention(False, configs.factor, attention_dropout=configs.dropout,
-                                      output_attention=configs.output_attention), configs.d_model, configs.n_heads),
-                    configs.d_model,
-                    configs.d_ff,
-                    dropout=configs.dropout,
-                    activation=configs.activation
-                ) for l in range(configs.e_layers)
+                        FullAttention(False, self.factor, attention_dropout=self.dropout,
+                                      output_attention=self.output_attention), self.d_model, self.n_heads),
+                    self.d_model,
+                    self.d_ff,
+                    dropout=self.dropout,
+                    activation=self.activation
+                ) for l in range(self.e_layers)
             ],
-            norm_layer=torch.nn.LayerNorm(configs.d_model)
+            norm_layer=torch.nn.LayerNorm(self.d_model)
         )
-        self.projector = nn.Linear(configs.d_model, configs.pred_len, bias=True)
+        self.projector = nn.Linear(self.d_model, self.pred_len, bias=True)
 
     def forecast(self, x_enc, x_mark_enc):
         if self.use_norm:
