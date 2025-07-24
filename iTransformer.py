@@ -1365,22 +1365,22 @@ class DataEmbedding_wo_pos(nn.Module):
         #     a = 1
         return self.dropout(x)
 
-class Model(nn.Module):
+class FEDformer(nn.Module):
     """
     FEDformer performs the attention mechanism on frequency domain and achieved O(N) complexity
     """
-    def __init__(self, configs):
-        super(Model, self).__init__()
-        self.version = configs.version
-        self.mode_select = configs.mode_select
-        self.modes = configs.modes
-        self.seq_len = configs.seq_len
-        self.label_len = configs.label_len
-        self.pred_len = configs.pred_len
-        self.output_attention = configs.output_attention
+    def __init__(self, configs, data_feature):
+        super(FEDformer, self).__init__()
+        self.version = configs.get("version", 'Fourier')
+        self.mode_select = configs.get("mode_select", 'random')
+        self.modes = configs.get("modes", 64)
+        self.seq_len = configs.get("seq_len", 6)
+        self.label_len = configs.get("pred_len", 6)
+        self.pred_len = configs.get("pred_len", 6)
+        self.output_attention = configs.get("output_attention", False)
 
         # Decomp
-        kernel_size = configs.moving_avg
+        kernel_size = configs.get("kernel_size", [24])
         if isinstance(kernel_size, list):
             self.decomp = series_decomp_multi(kernel_size)
         else:
@@ -1389,81 +1389,95 @@ class Model(nn.Module):
         # Embedding
         # The series-wise connection inherently contains the sequential information.
         # Thus, we can discard the position embedding of transformers.
-        self.enc_embedding = DataEmbedding_wo_pos(configs.enc_in, configs.d_model, configs.embed, configs.freq,
-                                                  configs.dropout)
-        self.dec_embedding = DataEmbedding_wo_pos(configs.dec_in, configs.d_model, configs.embed, configs.freq,
-                                                  configs.dropout)
-
-        if configs.version == 'Wavelets':
-            encoder_self_att = MultiWaveletTransform(ich=configs.d_model, L=configs.L, base=configs.base)
-            decoder_self_att = MultiWaveletTransform(ich=configs.d_model, L=configs.L, base=configs.base)
-            decoder_cross_att = MultiWaveletCross(in_channels=configs.d_model,
-                                                  out_channels=configs.d_model,
+        self.enc_in = data_feature.get("num_nodes")
+        self.d_model = configs.get("d_model", 512)
+        self.embed = configs.get("embed", 'timeF')
+        self.freq = configs.get("freq", 'h')
+        self.dropout = configs.get("dropout", 0.05)
+        self.enc_embedding = DataEmbedding_wo_pos(self.enc_in, self.d_model, self.embed, self.freq,
+                                                  self.dropout)
+        self.dec_embedding = DataEmbedding_wo_pos(self.dec_in, self.d_model, self.embed, self.freq,
+                                                  self.dropout)
+        self.L = configs.get("L", 3)
+        self.base = configs.get("base", 'legendre')
+        self.cross_activation = configs.get("cross_activation", 'tanh')
+        if self.version == 'Wavelets':
+            encoder_self_att = MultiWaveletTransform(ich=self.d_model, L=self.L, base=self.base)
+            decoder_self_att = MultiWaveletTransform(ich=self.d_model, L=self.L, base=self.base)
+            decoder_cross_att = MultiWaveletCross(in_channels=self.d_model,
+                                                  out_channels=self.d_model,
                                                   seq_len_q=self.seq_len // 2 + self.pred_len,
                                                   seq_len_kv=self.seq_len,
-                                                  modes=configs.modes,
-                                                  ich=configs.d_model,
-                                                  base=configs.base,
-                                                  activation=configs.cross_activation)
+                                                  modes=self.modes,
+                                                  ich=self.d_model,
+                                                  base=self.base,
+                                                  activation=self.cross_activation)
         else:
-            encoder_self_att = FourierBlock(in_channels=configs.d_model,
-                                            out_channels=configs.d_model,
+            encoder_self_att = FourierBlock(in_channels=self.d_model,
+                                            out_channels=self.d_model,
                                             seq_len=self.seq_len,
-                                            modes=configs.modes,
-                                            mode_select_method=configs.mode_select)
-            decoder_self_att = FourierBlock(in_channels=configs.d_model,
-                                            out_channels=configs.d_model,
+                                            modes=self.modes,
+                                            mode_select_method=self.mode_select)
+            decoder_self_att = FourierBlock(in_channels=self.d_model,
+                                            out_channels=self.d_model,
                                             seq_len=self.seq_len//2+self.pred_len,
-                                            modes=configs.modes,
-                                            mode_select_method=configs.mode_select)
-            decoder_cross_att = FourierCrossAttention(in_channels=configs.d_model,
-                                                      out_channels=configs.d_model,
+                                            modes=self.modes,
+                                            mode_select_method=self.mode_select)
+            decoder_cross_att = FourierCrossAttention(in_channels=self.d_model,
+                                                      out_channels=self.d_model,
                                                       seq_len_q=self.seq_len//2+self.pred_len,
                                                       seq_len_kv=self.seq_len,
-                                                      modes=configs.modes,
-                                                      mode_select_method=configs.mode_select)
+                                                      modes=self.modes,
+                                                      mode_select_method=self.mode_select)
         # Encoder
-        enc_modes = int(min(configs.modes, configs.seq_len//2))
-        dec_modes = int(min(configs.modes, (configs.seq_len//2+configs.pred_len)//2))
+        enc_modes = int(min(self.modes, self.seq_len//2))
+        dec_modes = int(min(self.modes, (self.seq_len//2+self.pred_len)//2))
         print('enc_modes: {}, dec_modes: {}'.format(enc_modes, dec_modes))
 
+        self.n_heads = configs.get("n_heads", 8)
+        self.d_ff = configs.get("d_ff", 2048)
+        self.moving_avg = configs.get("moving_avg", [24])
+        self.activation = configs.get("activation", 'gelu')
+        self.e_layers = configs.get("e_layers", 2)
+        self.d_layers = configs.get("d_layers", 1)
         self.encoder = Encoder(
             [
                 EncoderLayer(
                     AutoCorrelationLayer(
                         encoder_self_att,
-                        configs.d_model, configs.n_heads),
+                        self.d_model, self.n_heads),
 
-                    configs.d_model,
-                    configs.d_ff,
-                    moving_avg=configs.moving_avg,
-                    dropout=configs.dropout,
-                    activation=configs.activation
-                ) for l in range(configs.e_layers)
+                    self.d_model,
+                    self.d_ff,
+                    moving_avg=self.moving_avg,
+                    dropout=self.dropout,
+                    activation=self.activation
+                ) for l in range(self.e_layers)
             ],
-            norm_layer=my_Layernorm(configs.d_model)
+            norm_layer=my_Layernorm(self.d_model)
         )
         # Decoder
+        self.c_out = self.enc_in
         self.decoder = Decoder(
             [
                 DecoderLayer(
                     AutoCorrelationLayer(
                         decoder_self_att,
-                        configs.d_model, configs.n_heads),
+                        self.d_model, self.n_heads),
                     AutoCorrelationLayer(
                         decoder_cross_att,
-                        configs.d_model, configs.n_heads),
-                    configs.d_model,
-                    configs.c_out,
-                    configs.d_ff,
-                    moving_avg=configs.moving_avg,
-                    dropout=configs.dropout,
-                    activation=configs.activation,
+                        self.d_model, self.n_heads),
+                    self.d_model,
+                    self.c_out,
+                    self.d_ff,
+                    moving_avg=self.moving_avg,
+                    dropout=self.dropout,
+                    activation=self.activation,
                 )
-                for l in range(configs.d_layers)
+                for l in range(self.d_layers)
             ],
-            norm_layer=my_Layernorm(configs.d_model),
-            projection=nn.Linear(configs.d_model, configs.c_out, bias=True)
+            norm_layer=my_Layernorm(self.d_model),
+            projection=nn.Linear(self.d_model, self.c_out, bias=True)
         )
 
     def forward(self, x_enc, x_dec, enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None):
